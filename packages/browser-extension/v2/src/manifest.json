@@ -1,0 +1,36 @@
+{
+    "name": "PulseREST CORS Helper",
+    "description": "Help bypass CORS when making requests from PulseREST",
+    "version": "1.0.4",
+    "manifest_version": 2,
+    "icons": {
+        "512": "icons/favicon.png"
+    },
+    "permissions": [
+        "storage",
+        "tabs",
+        "*://*/*"
+    ],
+    "background": {
+        "scripts": [
+            "browser-polyfill.js",
+            "background.js"
+        ]
+    },
+    "content_scripts": [
+        {
+            "matches": ["https://pulserest.dev/*"],
+            "js": [
+                "browser-polyfill.js",
+                "content-script.js"
+            ]
+        }
+    ],
+    "page_action": {
+        "browser_style": true,
+        "default_icon": {
+            "512": "icons/favicon-disabled.png"
+        },
+        "show_matches": ["https://pulserest.dev/*"]
+    }
+}

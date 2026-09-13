@@ -1,0 +1,172 @@
+name: Publish Electron Binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      job-to-run:
+        description: 'Job to run (leave empty to run all)'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  NODE_VERSION: 22
+
+jobs:
+  build-electron-linux:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.job-to-run == 'build-electron-linux' || github.event.inputs.job-to-run == 'build-electron-snap' || github.event.inputs.job-to-run == '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Build UI
+        working-directory: ./packages/ui
+        run: |
+          npm ci
+          npm run build-desktop-electron
+      # - name: Install flatpak dependencies
+      #   run: |
+      #     sudo apt-get install -y flatpak-builder
+      #     flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+      - name: Build deb, rpm, flatpak
+        working-directory: ./packages/electron
+        run: |
+          npm ci
+          export DEBUG=@malept/flatpak-bundler # required to see flatpak build logs
+          npm run publish
+  build-electron-windows:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.job-to-run == 'build-electron-windows' || github.event.inputs.job-to-run == '' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Build UI
+        working-directory: ./packages/ui
+        run: |
+          npm ci
+          npm run build-desktop-electron
+      - name: Build windows installer
+        working-directory: ./packages/electron
+        run: |
+          npm ci
+          npm run publish
+  build-electron-mac:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.job-to-run == 'build-electron-mac' || github.event.inputs.job-to-run == '' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # macos-14 is arm64, macos-13 is x86_64 (so we get builds for both architectures)
+        # see https://github.com/actions/runner-images#available-images for more info
+        os: [macos-14, macos-13]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Build UI
+        working-directory: ./packages/ui
+        run: |
+          npm ci
+          npm run build-desktop-electron
+      - name: Add macOS certs
+        run: chmod +x scripts/add-osx-cert.sh && ./scripts/add-osx-cert.sh
+        env:
+          CERTIFICATE_OSX_APPLICATION: ${{ secrets.CERTIFICATE_OSX_APPLICATION }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+      - name: Build macos binaries
+        working-directory: ./packages/electron
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          npm ci
+          npm run publish
+  build-electron-snap:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.job-to-run == 'build-electron-snap' || github.event.inputs.job-to-run == '' }}
+    needs: [build-electron-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Build UI
+        working-directory: ./packages/ui
+        run: |
+          npm ci
+          npm run build-desktop-electron
+      - name: Build snap package
+        working-directory: ./packages/electron
+        run: |
+          npm ci
+          npm run build-snap
+      - name: Install Snapcraft
+        run: |
+          sudo apt-get install snapd
+          sudo snap install snapcraft --classic
+      - name: Set up Snap Store credentials & publish snap package
+        run: |
+          echo "${{ secrets.SNAP_STORE_TOKEN }}" | base64 -d > credentials.snapcraft
+          export SNAPCRAFT_STORE_CREDENTIALS=$(cat credentials.snapcraft)
+          snapcraft push --release=candidate ./packages/electron/dist/*.snap
+      - name: Set asset name
+        run: echo "SNAP_FILE_NAME=$(basename $(ls ./packages/electron/dist/*.snap))" >> $GITHUB_ENV
+      - name: Upload snap to GitHub release
+        run: |
+          node scripts/upload-file-to-latest-draft-release.js ./packages/electron/dist/${{ env.SNAP_FILE_NAME }}
+  build-docker-image:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.job-to-run == 'build-docker-image' || github.event.inputs.job-to-run == '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract version from tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+      - name: Build and tag docker image
+        working-directory: .
+        run: |
+          docker build -t flawiddsouza/restfox:${{ env.VERSION }} -t flawiddsouza/restfox:latest .
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Publish docker image
+        run: |
+          docker push --all-tags flawiddsouza/restfox
+  update-release-notes:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.job-to-run == '' }}
+    needs: [build-electron-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Generate & Update Release Notes
+        run: |
+          node scripts/update-release-notes.js

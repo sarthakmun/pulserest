@@ -1,0 +1,13 @@
+{
+    "name": "pulserest-web-standalone",
+    "version": "0.0.0",
+    "type": "module",
+    "dependencies": {
+        "dotenv": "^16.0.0",
+        "express": "^4.18.2",
+        "undici": "^6.19.8"
+    },
+    "scripts": {
+        "start": "node app.js"
+    }
+}
