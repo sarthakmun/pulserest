@@ -10,7 +10,7 @@
         "build-desktop-electron": "vite build --mode desktop-electron",
         "build-web-standalone": "vite build --mode web-standalone",
         "serve": "vite preview",
-        "test": "vitest",
+        "test": "vitest run",
         "test2": "playwright test",
         "lint": "eslint src --ext .js,.ts,.vue",
         "lint-fix": "eslint src --ext .js,.ts,.vue --fix",
