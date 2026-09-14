@@ -77,6 +77,3 @@ npm run electron:dev
 3. **Chunked Memory Pagination:** Virtualized response viewer capable of rendering 100MB+ JSON payloads at 60 FPS.
 
 ---
-
-## 📄 License
-This project is open-source under the [MIT License](LICENSE).
